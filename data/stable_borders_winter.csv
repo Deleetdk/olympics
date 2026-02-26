@@ -1,0 +1,36 @@
+iso3,country,gold,silver,bronze,total
+CAN,Canada,360,244,196,800
+NOR,Norway,225,214,164,603
+USA,United States,219,377,191,787
+SWE,Sweden,159,164,193,516
+AUT,Austria,115,125,132,372
+CHE,Switzerland,113,86,154,353
+FIN,Finland,95,156,265,516
+KOR,South Korea,80,62,20,162
+ITA,Italy,69,80,105,254
+NLD,Netherlands,65,56,63,184
+FRA,France,56,66,111,233
+JPN,Japan,56,59,58,173
+CHN,China,38,57,50,145
+GBR,United Kingdom,36,20,42,98
+POL,Poland,8,13,17,38
+AUS,Australia,7,9,11,27
+HUN,Hungary,7,7,18,32
+BEL,Belgium,5,5,8,18
+ESP,Spain,4,2,9,15
+NZL,New Zealand,3,3,6,12
+LIE,Liechtenstein,2,2,7,11
+ROU,Romania,2,0,3,5
+BGR,Bulgaria,1,2,4,7
+LUX,Luxembourg,1,2,0,3
+HKG,Hong Kong,1,0,1,2
+MAR,Morocco,1,0,0,1
+MEX,Mexico,1,0,0,1
+DNK,Denmark,0,5,1,6
+TWN,Taiwan,0,3,0,3
+ISR,Israel,0,1,1,2
+PRK,North Korea,0,1,1,2
+COL,Colombia,0,1,0,1
+AND,Andorra,0,0,1,1
+MCO,Monaco,0,0,1,1
+TUR,Turkey,0,0,1,1

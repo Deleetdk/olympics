@@ -1,0 +1,120 @@
+iso3,country,gold,silver,bronze,total
+USA,United States,2851,1907,1567,6325
+GBR,United Kingdom,755,806,800,2361
+FRA,France,642,778,776,2196
+ITA,Italy,636,595,621,1852
+CAN,Canada,569,530,584,1683
+CHN,China,537,488,388,1413
+SWE,Sweden,522,592,553,1667
+NOR,Norway,471,414,354,1239
+HUN,Hungary,467,356,429,1252
+AUS,Australia,413,520,642,1575
+NLD,Netherlands,406,403,476,1285
+JPN,Japan,385,417,431,1233
+KOR,South Korea,290,293,238,821
+FIN,Finland,224,281,484,989
+CHE,Switzerland,213,267,305,785
+DNK,Denmark,200,263,199,662
+CUB,Cuba,180,132,135,447
+ROU,Romania,178,216,296,690
+ESP,Spain,158,300,209,667
+NZL,New Zealand,147,104,104,355
+AUT,Austria,144,209,188,541
+BRA,Brazil,143,228,241,612
+IND,India,132,23,82,237
+POL,Poland,130,222,277,629
+BEL,Belgium,125,195,184,504
+ARG,Argentina,93,113,127,333
+BGR,Bulgaria,65,147,151,363
+GRC,Greece,64,138,93,295
+JAM,Jamaica,49,87,46,182
+PAK,Pakistan,43,46,34,123
+KEN,Kenya,42,47,42,131
+TUR,Turkey,41,31,44,116
+ZAF,South Africa,36,57,68,161
+MEX,Mexico,32,31,87,150
+URY,Uruguay,31,2,30,63
+IRN,Iran,28,29,31,88
+FJI,Fiji,26,14,13,53
+NGA,Nigeria,23,38,43,104
+CMR,Cameroon,20,1,2,23
+IRL,Ireland,17,12,20,49
+BHS,Bahamas,17,12,16,45
+ZWE,Zimbabwe,17,4,1,22
+PRK,North Korea,16,21,40,77
+IDN,Indonesia,15,19,18,52
+THA,Thailand,14,13,19,46
+EGY,Egypt,12,13,19,44
+TWN,Taiwan,9,38,25,72
+MAR,Morocco,9,5,32,46
+TTO,Trinidad and Tobago,7,9,18,34
+DZA,Algeria,7,4,9,20
+COL,Colombia,6,18,18,42
+PRT,Portugal,6,14,30,50
+DOM,Dominican Republic,6,9,29,44
+HKG,Hong Kong,5,8,10,23
+UGA,Uganda,5,5,3,13
+TUN,Tunisia,5,3,8,16
+CHL,Chile,4,10,20,34
+ECU,Ecuador,4,5,2,11
+BHR,Bahrain,4,4,2,10
+ISR,Israel,3,13,20,36
+VEN,Venezuela,3,10,12,25
+PHL,Philippines,3,5,10,18
+VNM,Vietnam,3,3,2,8
+MNG,Mongolia,2,12,17,31
+QAT,Qatar,2,3,6,11
+LUX,Luxembourg,2,3,0,5
+PRI,Puerto Rico,2,2,8,12
+LIE,Liechtenstein,2,2,7,11
+PER,Peru,1,14,1,16
+BWA,Botswana,1,9,4,14
+SGP,Singapore,1,4,6,11
+JOR,Jordan,1,2,1,4
+CIV,Ivory Coast,1,1,3,5
+GRD,Grenada,1,1,3,5
+CRI,Costa Rica,1,1,2,4
+PAN,Panama,1,1,2,4
+SYR,Syria,1,1,2,4
+GTM,Guatemala,1,1,1,3
+BDI,Burundi,1,1,0,2
+LCA,Saint Lucia,1,1,0,2
+ARE,United Arab Emirates,1,0,1,2
+BMU,Bermuda,1,0,1,2
+MOZ,Mozambique,1,0,1,2
+SUR,Suriname,1,0,1,2
+DMA,Dominica,1,0,0,1
+PRY,Paraguay,0,17,0,17
+ISL,Iceland,0,15,2,17
+MYS,Malaysia,0,14,10,24
+NAM,Namibia,0,5,0,5
+SAU,Saudi Arabia,0,2,5,7
+LBN,Lebanon,0,2,2,4
+SMR,San Marino,0,2,2,4
+CYP,Cyprus,0,2,0,2
+LKA,Sri Lanka,0,2,0,2
+TZA,Tanzania,0,2,0,2
+GHA,Ghana,0,1,23,24
+HTI,Haiti,0,1,5,6
+ZMB,Zambia,0,1,2,3
+NER,Niger,0,1,1,2
+ANT,Netherlands Antilles,0,1,0,1
+GAB,Gabon,0,1,0,1
+SEN,Senegal,0,1,0,1
+SLV,El Salvador,0,1,0,1
+TON,Tonga,0,1,0,1
+VIR,US Virgin Islands,0,1,0,1
+WSM,Samoa,0,1,0,1
+KWT,Kuwait,0,0,3,3
+AFG,Afghanistan,0,0,2,2
+ALB,Albania,0,0,2,2
+DJI,Djibouti,0,0,2,2
+AND,Andorra,0,0,1,1
+BFA,Burkina Faso,0,0,1,1
+BRB,Barbados,0,0,1,1
+CPV,Cape Verde,0,0,1,1
+GUY,Guyana,0,0,1,1
+IRQ,Iraq,0,0,1,1
+MCO,Monaco,0,0,1,1
+MUS,Mauritius,0,0,1,1
+TGO,Togo,0,0,1,1

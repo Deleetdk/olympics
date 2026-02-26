@@ -1,0 +1,424 @@
+---
+title: "Which country makes the best movies per capita?"
+output:
+  html_document:
+    df_print: paged
+    toc: true
+date: "`r format(Sys.time(), '%d %B, %Y')`"
+editor_options: 
+  chunk_output_type: console
+---
+
+# Init
+
+```{r}
+library(kirkegaard)
+load_packages(
+  #neg binom count
+  MASS,
+  #plotting
+  patchwork,
+  #bayes
+  ebpm
+)
+
+#prefer select() from dplyr
+select = dplyr::select
+
+theme_set(theme_bw())
+
+options(
+    digits = 3
+)
+```
+
+# Data
+
+## Oscars
+
+```{r}
+#oscar wins for non-US movies
+#manually imported from https://en.wikipedia.org/wiki/List_of_countries_by_number_of_Academy_Awards_for_Best_International_Feature_Film
+d = read_csv("data/oscar.csv") %>% 
+  set_colnames(
+    c("country_dirty", "wins", "nominations", "submissions", "first_submission", "last_submission")
+  )
+
+#fix encoding
+d %<>% mutate(
+  #clean off the text in brackets
+  country = str_remove(country_dirty, "\\[.*\\]"),
+  
+  #country is half the length of the string
+  country = str_sub(country, 1, str_length(country) / 2) %>% str_trim(),
+  
+  #as numeric vars
+  wins = as.numeric(wins),
+  nominations = as.numeric(nominations), #Uruguay cheated
+  submissions = as.numeric(submissions)
+)
+
+#manually fix a few issues
+d$country[33] = "Yugoslavia"
+d$country[49] = "Georgia"
+d$country[59] = "Ireland"
+
+#ISO encoding
+d$ISO3 = pu_translate(d$country)
+
+#Uruguay 0 nominations, their 1 is cheating
+d$nominations[which(d$country == "Uruguay")] = 0
+
+#wins before
+sum(d$wins)
+sum(d$nominations)
+
+#manually deal with merged and split countries
+#Russia 3 wins 5 nominations from Soviet Union
+d %>% filter(country == "Soviet Union") %>% select(wins, nominations)
+d$wins[which(d$country == "Russia")] = d$wins[which(d$country == "Russia")] + 3
+d$nominations[which(d$country == "Russia")] = d$nominations[which(d$country == "Russia")] + 3 + 5 #wins are also nominations
+#Ukraine 1 nomination from Soviet Union
+d$nominations[which(d$country == "Ukraine")] = d$nominations[which(d$country == "Ukraine")] + 1
+
+#Czechoslovakia
+#Czech Republic 1.5 wins and 4 nominations from Czechoslovakia
+d %>% filter(country == "Czechoslovakia") %>% select(wins, nominations)
+d$wins[which(d$country == "Czech Republic")] = d$wins[which(d$country == "Czech Republic")] + 1.5
+d$nominations[which(d$country == "Czech Republic")] = d$nominations[which(d$country == "Czech Republic")] + 4 + 1.5 #wins are also nominations
+#Slovakia 0.5 wins and 0 nomination from Czechoslovakia
+d$wins[which(d$country == "Slovakia")] = d$wins[which(d$country == "Slovakia")] + 0.5
+d$nominations[which(d$country == "Slovakia")] = d$nominations[which(d$country == "Slovakia")] + 0.5 #wins are also nominations
+
+#Germany, merge from West and East
+#west germany 1 win, 8 nominations
+#east germany, 0 wins, 1 nomination
+d %>% filter(country %in% c("West Germany", "East Germany")) %>% select(country, wins, nominations)
+d$wins[which(d$country == "Germany")] = d$wins[which(d$country == "Germany")] + 1
+d$nominations[which(d$country == "Germany")] = d$nominations[which(d$country == "Germany")] + 9  #wins are also nominations
+
+#Yugoslavia
+#6 nominations, 0 wins, 3 Serbia, 1 Montenegro, 1 Slovenia, 1 Italy
+d$nominations[which(d$country == "Serbia")] = d$nominations[which(d$country == "Serbia")] + 3
+d$nominations[which(d$country == "Montenegro")] = d$nominations[which(d$country == "Montenegro")] + 1
+d$nominations[which(d$country == "Slovenia")] = d$nominations[which(d$country == "Slovenia")] + 1
+d$nominations[which(d$country == "Italy")] = d$nominations[which(d$country == "Italy")] + 1
+
+#remove these cases
+d = d %>% filter(!country %in% c("Soviet Union", "Yugoslavia", "Czechoslovakia", "East Germany", "West Germany"))
+
+#wins after, must be the same
+sum(d$wins)
+sum(d$nominations)
+```
+
+## Covariates
+
+```{r}
+#population size
+pop = read_csv("data/population.csv") %>% 
+  set_colnames(c("country", "year", "population")) %>% 
+  filter(year == 2023)
+
+#ISO3
+pop$ISO3 = pu_translate(pop$country, fuzzy = F)
+
+#population in millions
+pop$population_m = pop$population / 1e6
+```
+
+## Join data
+
+```{r}
+d = d %>% left_join(pop %>% select(ISO3, population_m), by = "ISO3")
+
+#double the count to avoid half-values
+d$wins2 = d$wins * 2
+d$nominations2 = d$nominations * 2
+
+#log counts
+d$log_wins = log(d$wins + 1)
+d$log_nominations = log(d$nominations + 1)
+
+#simple per million adjustment
+d$wins_per_million = d$wins / d$population_m
+d$nominations_per_million = d$nominations / d$population_m
+```
+
+
+# Analysis
+
+## Simple population model
+
+```{r}
+#wins per capita
+p_wins_pm = d %>% arrange(desc(wins_per_million)) %>% head(20) %>% 
+  mutate(
+    #sort country by highest wins per million
+    country = fct_reorder(country, wins_per_million)
+  ) %>% 
+  ggplot(aes(wins_per_million, country)) +
+  geom_bar(stat = "identity")
+
+#nominations per capita
+p_noms_pm = d %>% arrange(desc(nominations_per_million)) %>% head(20) %>% 
+  mutate(
+    #sort country by highest nominations per million
+    country = fct_reorder(country, nominations_per_million)
+  ) %>% 
+  ggplot(aes(nominations_per_million, country)) +
+  geom_bar(stat = "identity")
+
+#plot together
+patchwork::wrap_plots(p_wins_pm, p_noms_pm + theme(axis.title.y = element_blank()), ncol = 2) +
+  plot_annotation(
+    title = "Oscar wins and nominations per million inhabitants"
+  )
+
+GG_save("figs/oscar foreign wins and nominations per million.png")
+
+#pm for both
+d %>% 
+  GG_scatter("wins_per_million", "nominations_per_million", case_names = "country")
+```
+
+## Top values
+
+```{r}
+#simulate two populations, one with fixed size of 100, the other with varying size, and calculate how many of the top 10 are from the second population
+set.seed(1)
+extreme_values_top10 = map_dfr(c(100, 250, 500, 1000, 1500, 2000) %>% rep(1000), function(n2) {
+  #sim sample 1
+  dd = tibble(
+    pop = rep(c(1, 2), c(100, n2)),
+    values = c(rnorm(100), rnorm(n2))
+  ) %>% arrange(desc(values))
+  
+  tibble(
+    n2 = n2,
+    top10_frac = mean(dd$pop[1:10] == 2)
+  )
+})
+
+#plot
+p_extreme_vals1 = extreme_values_top10 %>% 
+  group_by(n2) %>%
+  summarise(top10_frac = mean(top10_frac)) %>%
+  ggplot(aes(n2, top10_frac)) +
+  geom_line() +
+  scale_y_continuous(labels = scales::percent, limits = c(0.5, 1)) +
+  labs(
+    x = "Sample size of sample 2",
+    y = "% of top 10 from second population"
+  )
+
+#as proportion of total population restores linearity
+p_extreme_vals2 = extreme_values_top10 %>% 
+  group_by(n2) %>%
+  summarise(top10_frac = mean(top10_frac), n2_prop_of_total = n2[1]/(100+n2[1])) %>%
+  ggplot(aes(n2_prop_of_total, top10_frac)) +
+  geom_line() +
+  scale_x_continuous(labels = scales::percent, limits = c(0.5, 1)) +
+  scale_y_continuous(labels = scales::percent, limits = c(0.5, 1)) +
+  labs(
+    x = "Sample 2 share of total population",
+    y = "% of top 10 from second population"
+  )
+
+p_extreme_vals1 + p_extreme_vals2
+
+GG_save("figs/extreme values in top 10.png")
+```
+
+
+## Sampling error issues
+
+```{r}
+#simulate varying sample sizes of normal distribution, compute the mean
+set.seed(1)
+resamples = map_dfr(1:10000, ~{
+  #sample size
+  n = sample(5:200, 1)
+  
+  #sample
+  x = rnorm(n, 0, 1)
+  
+  #return mean
+  tibble(n = n, 
+         mean = mean(x)
+         )
+})
+
+#plot them
+resamples %>% ggplot(aes(n, mean)) +
+  geom_point(alpha = 0.2) +
+  #ribbon for quantiles
+  geom_ribbon(mapping = aes(
+    ymin = quantile_smooth(resamples$n, resamples$mean, quantile = .10, method = "Rq"),
+    ymax = quantile_smooth(resamples$n, resamples$mean, quantile = .90, method = "Rq")
+  ), alpha = 0.4) +
+  labs(
+    title = "Sampling error and extreme estimates of the mean",
+    x = "Sample size",
+    y = "Mean"
+  )
+
+GG_save("figs/sampling error simulation.png")
+```
+
+
+## Models
+
+```{r}
+#simple expectation model using worldwide values
+global_rates = d %>% summarise(
+  wins = sum(wins),
+  nominations = sum(nominations),
+  population_m = sum(population_m)
+) %>% mutate(
+  wins_per_million = wins / population_m,
+  nominations_per_million = nominations / population_m
+)
+
+global_rates
+
+#add global rate predictions
+d$wins_global_pred = global_rates$wins_per_million * d$population_m
+d$nominations_global_pred = global_rates$nominations_per_million * d$population_m
+
+#residuals
+d$wins_global_resid = d$wins - d$wins_global_pred
+d$nominations_global_resid = d$nominations - d$nominations_global_pred
+
+#resid per million
+d$wins_global_resid_pm = d$wins_global_resid / d$population_m
+d$nominations_global_resid_pm = d$nominations_global_resid / d$population_m
+
+#make a table
+d %>% arrange(-nominations_global_resid) %>% select(country, nominations, population_m, nominations_global_pred, nominations_global_resid, nominations_global_resid_pm) %>% 
+  head(20) %>% 
+  knitr::kable(caption = "Global model residuals for nominations")
+
+#highest excess wins per million?
+d %>% arrange(-nominations_global_resid_pm) %>% select(country, nominations, population_m, nominations_global_pred, nominations_global_resid, nominations_global_resid_pm) %>% 
+  head(20)
+
+#compare
+d %>% 
+  GG_scatter("nominations_global_pred", "nominations", case_names = "country", text_pos = "tr")
+
+GG_save("figs/nominations global model.png")
+
+#Poisson model
+oscar_noms_poisson = glm(nominations2 ~ log(population_m), data = d, family = poisson)
+oscar_noms_poisson %>% summary()
+
+#save residuals and predictions
+d$oscar_noms_poisson_resid = residuals(oscar_noms_poisson) / 2
+d$oscar_noms_poisson_pred = predict(oscar_noms_poisson, type = "response") / 2
+
+#negative binomial model
+oscar_noms_negbin = MASS::glm.nb(nominations2 ~ log(population_m), data = d)
+oscar_noms_negbin %>% summary()
+
+#save residuals and predictions
+d$oscar_noms_negbin_resid = residuals(oscar_noms_negbin) / 2
+d$oscar_noms_negbin_pred = predict(oscar_noms_negbin, type = "response") / 2
+
+#log(1+count) OLS
+oscar_noms_ols = lm(log_nominations ~ log(population_m), data = d)
+oscar_noms_ols %>% summary()
+
+#save residuals and predictions
+d$oscar_noms_ols_resid = residuals(oscar_noms_ols)
+d$oscar_noms_ols_pred = predict(oscar_noms_ols)
+
+#correlations
+d %>% select(nominations, log_nominations, contains("_pred")) %>% cor_matrix()
+
+#how does it look like
+d %>% 
+  GG_scatter("oscar_noms_ols_pred", "log_nominations", case_names = "country")
+
+GG_save("figs/nominations log OLS model.png")
+
+#compare with poisson and negbin
+p_poisson = d %>% 
+  GG_scatter("oscar_noms_poisson_pred", "nominations", case_names = "country", text_pos = "tr") +
+  labs(title = "Poisson model")
+
+p_negbin = d %>%
+  GG_scatter("oscar_noms_negbin_pred", "nominations", case_names = "country", text_pos = "tr") +
+  labs(title = "Negative binomial model")
+
+patchwork::wrap_plots(p_poisson, p_negbin, ncol = 2) +
+  plot_annotation(
+    title = "Poisson and negative binomial models for Oscar nominations"
+  )
+
+GG_save("figs/nominations poisson and negbin models.png")
+```
+
+### Bayesian models
+
+```{r}
+fit_ebayes = ebpm_gamma(d$nominations, d$population_m)
+fit_ebayes %>% summary()
+
+d$nominations_post = fit_ebayes$posterior$mean
+
+#how do these compare to raw pm?
+d %>% 
+  select(country, population_m, nominations, nominations_global_pred, nominations_global_resid, nominations_post, nominations_per_million) %>% 
+  arrange(-nominations_post)
+
+#raw and posterior nominations per million
+d %>% 
+  arrange(-nominations_post) %>%
+  head(30) %>% 
+  mutate(
+    country = fct_reorder(country, nominations_per_million)
+  ) %>% 
+  select(country, nominations_per_million, nominations_post) %>%
+  pivot_longer(-country) %>%
+  ggplot(aes(value, country, fill = name)) +
+  geom_bar(stat = "identity", position = "dodge") +
+  scale_fill_discrete(labels = c("Raw per million", "Bayesian posterior")) +
+  labs(
+    title = "Raw and posterior nominations per million inhabitants",
+    x = "Nominations per million",
+    fill = "Type of estimate"
+  )
+
+GG_save("figs/nominations raw and posterior per million.png")
+```
+
+
+# Meta
+
+```{r}
+#versions
+write_sessioninfo()
+
+#write data to file for reuse
+d %>% write_rds("data/data_for_reuse.rds")
+
+#OSF
+if (F) {
+  library(osfr)
+  
+  #login
+  osf_auth(readr::read_lines("~/.config/osf_token"))
+  
+  #the project we will use
+  osf_proj = osf_retrieve_node("https://osf.io/XXX/")
+  
+  #upload all files in project
+  #overwrite existing (versioning)
+  osf_upload(
+    osf_proj,
+    path = c("data", "figures", "papers", "notebook.Rmd", "notebook.html", "sessions_info.txt"), 
+    conflicts = "overwrite"
+    )
+}
+```

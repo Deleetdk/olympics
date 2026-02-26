@@ -1,0 +1,453 @@
+---
+title: "Olympics: who is good?"
+output:
+  html_document:
+    df_print: paged
+    toc: true
+date: "`r format(Sys.time(), '%d %B, %Y')`"
+editor_options:
+  chunk_output_type: console
+---
+
+# Init
+
+```{r}
+library(kirkegaard)
+load_packages(
+  ebpm,
+  patchwork,
+  rnaturalearth,
+  sf,
+  readxl
+)
+
+theme_set(theme_bw())
+
+options(
+    digits = 3
+)
+
+#multithreading
+#library(future)
+#plan(multisession(workers = 8))
+```
+
+# Functions
+
+```{r}
+summarize_participation = function(d) {
+  totals = d %>% group_by(season) %>% summarize(n_games_total = n_distinct(year), .groups = "drop")
+  d %>%
+    group_by(iso3, country, season) %>%
+    summarize(n_games = n(), .groups = "drop") %>%
+    left_join(totals, by = "season") %>%
+    mutate(frac_games = n_games / n_games_total)
+}
+
+add_per_capita = function(d, pop, by) {
+  d %>%
+    inner_join(pop, by = by) %>%
+    mutate(
+      gold_pc = gold / avg_pop,
+      silver_pc = silver / avg_pop,
+      bronze_pc = bronze / avg_pop,
+      total_pc = total / avg_pop
+    )
+}
+
+# empirical Bayes shrinkage via ebpm (Poisson means with Gamma prior)
+add_eb = function(d) {
+  d %>%
+    mutate(
+      gold_eb = ebpm_gamma(gold, avg_pop)$posterior$mean,
+      silver_eb = ebpm_gamma(silver, avg_pop)$posterior$mean,
+      bronze_eb = ebpm_gamma(bronze, avg_pop)$posterior$mean,
+      total_eb = ebpm_gamma(total, avg_pop)$posterior$mean
+    )
+}
+
+plot_map = function(d, iso3_col = "iso3", title = "") {
+  map_data = world %>%
+    filter(iso_a3_eh != "ATA") %>%
+    left_join(d %>% select(iso3 = !!sym(iso3_col), total_eb), by = c("iso_a3_eh" = "iso3"))
+
+  ggplot(map_data) +
+    geom_sf(aes(fill = total_eb), color = "grey40", linewidth = 0.1) +
+    scale_fill_viridis_c(
+      name = "Medals per capita (EB)",
+      na.value = "grey90",
+      trans = "log10",
+      limits = eb_range,
+      labels = scales::label_scientific()
+    ) +
+    coord_sf(ylim = c(-55, 85), expand = FALSE) +
+    labs(title = title) +
+    theme_void(base_size = 14) +
+    theme(
+      plot.title = element_text(hjust = 0.5),
+      legend.position = "bottom",
+      legend.key.width = unit(2, "cm"),
+      plot.background = element_rect(fill = "white", color = NA),
+      panel.background = element_rect(fill = "white", color = NA),
+      plot.margin = margin(2, 2, 2, 2)
+    )
+}
+
+plot_resid_map = function(d, iso3_col = "iso3", resid_col, title = "") {
+  map_data = world %>%
+    filter(iso_a3_eh != "ATA") %>%
+    left_join(d %>% dplyr::select(iso3 = !!sym(iso3_col), resid = !!sym(resid_col)),
+              by = c("iso_a3_eh" = "iso3"))
+
+  ggplot(map_data) +
+    geom_sf(aes(fill = resid), color = "grey40", linewidth = 0.1) +
+    scale_fill_gradient2(
+      name = "Residual\n(log scale)",
+      na.value = "grey90",
+      low = "#d73027", mid = "white", high = "#1a9850",
+      midpoint = 0, limits = c(-5, 5), oob = scales::squish
+    ) +
+    coord_sf(ylim = c(-55, 85), expand = FALSE) +
+    labs(title = title) +
+    theme_void(base_size = 14) +
+    theme(
+      plot.title = element_text(hjust = 0.5),
+      legend.position = "bottom",
+      legend.key.width = unit(2, "cm"),
+      plot.background = element_rect(fill = "white", color = NA),
+      panel.background = element_rect(fill = "white", color = NA),
+      plot.margin = margin(2, 2, 2, 2)
+    )
+}
+
+plot_raw_vs_eb = function(d, n = 30, title = "") {
+  d %>%
+    arrange(desc(total_eb)) %>%
+    head(n) %>%
+    mutate(country = fct_reorder(country, total_eb)) %>%
+    select(country, Raw = total_pc, EB = total_eb) %>%
+    pivot_longer(-country, names_to = "type", values_to = "rate") %>%
+    ggplot(aes(rate, country, fill = type)) +
+    geom_bar(stat = "identity", position = "dodge") +
+    labs(
+      title = title,
+      x = "Medals per capita",
+      fill = "Estimate"
+    )
+}
+```
+
+# Data
+
+## Medal tallies
+
+```{r}
+# stable borders, all-time (1896-2024)
+d_all_summer = read_csv("data/stable_borders_summer.csv")
+d_all_winter = read_csv("data/stable_borders_winter.csv")
+d_all_combined = read_csv("data/stable_borders_combined.csv")
+
+# post-Cold War (1994-2024)
+d_post1990_summer = read_csv("data/post1994_summer.csv")
+d_post1990_winter = read_csv("data/post1994_winter.csv")
+d_post1990_combined = read_csv("data/post1994_combined.csv")
+
+# participation: count and fraction of Games attended per country per season
+d_all_participation = read_csv("data/stable_borders_participation.csv") %>% summarize_participation()
+d_post1990_participation = read_csv("data/post1994_participation.csv") %>%
+  rename(iso3 = modern_iso3) %>%
+  summarize_participation()
+```
+
+## Population
+
+```{r}
+# UN World Population Prospects 2024 via OWID
+d_un_pop = read_csv("data/un_pop_raw/population.csv") %>%
+  rename(iso3 = Code, country = Entity, year = Year, pop = Population) %>%
+  filter(!is.na(iso3), iso3 != "")
+
+# average population for the full period (1896-2023)
+d_un_pop_all = d_un_pop %>%
+  filter(year >= 1896, year <= 2023) %>%
+  group_by(iso3) %>%
+  summarize(avg_pop = mean(pop, na.rm = TRUE), .groups = "drop")
+
+# average population for the post-Cold War period (1994-2023)
+d_un_pop_post1990 = d_un_pop %>%
+  filter(year >= 1994, year <= 2023) %>%
+  group_by(iso3) %>%
+  summarize(avg_pop = mean(pop, na.rm = TRUE), .groups = "drop")
+```
+
+## HDI
+
+```{r}
+# UNDP HDI 1990-2023
+d_hdi_raw <- read_csv("data/hdi_raw/HDR_composite_indices.csv")
+d_hdi <- d_hdi_raw %>%
+  dplyr::select(iso3, starts_with("hdi_19"), starts_with("hdi_20")) %>%
+  pivot_longer(-iso3, names_to = "year", values_to = "hdi", names_prefix = "hdi_") %>%
+  mutate(year = as.integer(year)) %>%
+  filter(!is.na(hdi))
+
+d_hdi_post1990 <- d_hdi %>%
+  filter(year >= 1994, year <= 2023) %>%
+  group_by(iso3) %>%
+  summarize(avg_hdi = mean(hdi, na.rm = TRUE), .groups = "drop") %>%
+  # impute missing countries (period averages estimated from current values)
+  bind_rows(tibble(
+    iso3 = c("TWN", "PRI", "BMU", "PRK"),
+    avg_hdi = c(0.81, 0.81, 0.90, 0.56)
+  ))
+```
+
+## GDP per capita
+
+```{r}
+# Maddison Project GDP per capita (2011 int-$), 1-2022
+d_gdppc_raw <- read_xlsx("data/gdppc_raw/maddison_gdppc.xlsx", sheet = "GDPpc", skip = 2)
+names(d_gdppc_raw)[1] <- "year"
+d_gdppc <- d_gdppc_raw %>%
+  pivot_longer(-year, names_to = "iso3", values_to = "gdppc") %>%
+  filter(!is.na(gdppc), year >= 1896)
+
+d_gdppc_all <- d_gdppc %>%
+  group_by(iso3) %>%
+  summarize(avg_gdppc = mean(gdppc, na.rm = TRUE), .groups = "drop")
+
+d_gdppc_post1990 <- d_gdppc %>%
+  filter(year >= 1994) %>%
+  group_by(iso3) %>%
+  summarize(avg_gdppc = mean(gdppc, na.rm = TRUE), .groups = "drop")
+```
+
+## World shapefile
+
+```{r}
+world <- ne_countries(scale = "medium", returnclass = "sf") %>%
+  select(iso_a3_eh, geometry)
+```
+
+# Analysis
+
+## Per capita rates
+
+```{r}
+d_all_summer = add_per_capita(d_all_summer, d_un_pop_all, "iso3") %>% add_eb()
+d_all_winter = add_per_capita(d_all_winter, d_un_pop_all, "iso3") %>% add_eb()
+d_all_combined = add_per_capita(d_all_combined, d_un_pop_all, "iso3") %>% add_eb()
+
+d_post1990_summer = add_per_capita(d_post1990_summer, d_un_pop_post1990, c("modern_iso3" = "iso3")) %>% add_eb()
+d_post1990_winter = add_per_capita(d_post1990_winter, d_un_pop_post1990, c("modern_iso3" = "iso3")) %>% add_eb()
+d_post1990_combined = add_per_capita(d_post1990_combined, d_un_pop_post1990, c("modern_iso3" = "iso3")) %>% add_eb()
+```
+
+## Raw vs. EB rates
+
+```{r fig.width=16, fig.height=14}
+p1 <- plot_raw_vs_eb(d_all_summer, title = "Summer, all-time (stable borders)"); p1
+p2 <- plot_raw_vs_eb(d_post1990_summer, title = "Summer, post-1994"); p2
+p3 <- plot_raw_vs_eb(d_all_winter, title = "Winter, all-time (stable borders)"); p3
+p4 <- plot_raw_vs_eb(d_post1990_winter, title = "Winter, post-1994"); p4
+
+p_combined <- (p1 + p2) / (p3 + p4) + plot_layout(guides = "collect")
+p_combined
+
+GG_save("figures/raw_vs_eb_summer_alltime.png", p1)
+GG_save("figures/raw_vs_eb_summer_post1994.png", p2)
+GG_save("figures/raw_vs_eb_winter_alltime.png", p3)
+GG_save("figures/raw_vs_eb_winter_post1994.png", p4)
+GG_save("figures/raw_vs_eb_2x2.png", p_combined, width = 16, height = 14)
+```
+
+## World maps
+
+```{r fig.width=16, fig.height=12}
+eb_range <- range(c(d_all_summer$total_eb, d_post1990_summer$total_eb,
+                    d_all_winter$total_eb, d_post1990_winter$total_eb))
+
+m1 <- plot_map(d_all_summer, title = "Summer, all-time (stable borders)"); m1
+m2 <- plot_map(d_post1990_summer, iso3_col = "modern_iso3", title = "Summer, post-1994"); m2
+m3 <- plot_map(d_all_winter, title = "Winter, all-time (stable borders)"); m3
+m4 <- plot_map(d_post1990_winter, iso3_col = "modern_iso3", title = "Winter, post-1994"); m4
+
+m_combined <- (m1 + m2) / (m3 + m4) + plot_layout(guides = "collect") &
+  theme(legend.position = "bottom")
+m_combined
+
+GG_save("figures/map_summer_alltime.png", m1)
+GG_save("figures/map_summer_post1994.png", m2)
+GG_save("figures/map_winter_alltime.png", m3)
+GG_save("figures/map_winter_post1994.png", m4)
+GG_save("figures/map_2x2.png", m_combined, width = 16, height = 10)
+```
+
+## Post-1994 Summer models
+
+```{r}
+d_reg_post <- d_post1990_summer %>%
+  left_join(
+    d_post1990_participation %>% filter(season == "Summer"),
+    by = c("modern_iso3" = "iso3")
+  ) %>%
+  left_join(d_hdi_post1990, by = c("modern_iso3" = "iso3")) %>%
+  left_join(d_gdppc_post1990, by = c("modern_iso3" = "iso3")) %>%
+  dplyr::select(modern_iso3, country = country.x, total,
+                avg_pop, frac_games, avg_hdi, avg_gdppc) %>%
+  mutate(log_gdppc = log(avg_gdppc)) %>%
+  filter(!is.na(avg_hdi), !is.na(avg_gdppc))
+
+# negative binomial models with offset(log(pop))
+m_post_part <- MASS::glm.nb(total ~ frac_games + offset(log(avg_pop)), data = d_reg_post)
+m_post_hdi  <- MASS::glm.nb(total ~ avg_hdi + offset(log(avg_pop)), data = d_reg_post)
+m_post_gdp  <- MASS::glm.nb(total ~ log_gdppc + offset(log(avg_pop)), data = d_reg_post)
+m_post_ph   <- MASS::glm.nb(total ~ frac_games + avg_hdi + offset(log(avg_pop)), data = d_reg_post)
+m_post_pg   <- MASS::glm.nb(total ~ frac_games + log_gdppc + offset(log(avg_pop)), data = d_reg_post)
+
+models_post <- list(
+  "Participation" = m_post_part,
+  "HDI" = m_post_hdi,
+  "log(GDPpc)" = m_post_gdp,
+  "Part + HDI" = m_post_ph,
+  "Part + log(GDPpc)" = m_post_pg
+)
+
+map2_dfr(models_post, names(models_post), ~ {
+  s <- summary(.x)$coefficients
+  tibble(term = rownames(s), est = s[,1], se = s[,2], z = s[,3], p = s[,4], model = .y)
+}) %>% filter(term != "(Intercept)") %>%
+  mutate(sig = case_when(p < 0.001 ~ "***", p < 0.01 ~ "**", p < 0.05 ~ "*", p < 0.1 ~ ".", TRUE ~ "")) %>%
+  dplyr::select(model, term, est, se, z, p, sig)
+
+tibble(
+  model = names(models_post),
+  AIC = sapply(models_post, AIC),
+  theta = sapply(models_post, function(m) m$theta)
+)
+
+# standardized coefficients for relative importance
+d_reg_post_z <- d_reg_post %>%
+  mutate(across(c(frac_games, avg_hdi, log_gdppc), ~ scale(.)[,1], .names = "{.col}_z"))
+
+m_post_ph_z <- MASS::glm.nb(total ~ frac_games_z + avg_hdi_z + offset(log(avg_pop)), data = d_reg_post_z)
+m_post_pg_z <- MASS::glm.nb(total ~ frac_games_z + log_gdppc_z + offset(log(avg_pop)), data = d_reg_post_z)
+
+coef(summary(m_post_ph_z))[2:3, ]
+coef(summary(m_post_pg_z))[2:3, ]
+```
+
+## All-time Summer models
+
+```{r}
+d_reg_all <- d_all_summer %>%
+  left_join(
+    d_all_participation %>% filter(season == "Summer"),
+    by = "iso3"
+  ) %>%
+  left_join(d_gdppc_all, by = "iso3") %>%
+  dplyr::select(iso3, country = country.x, total, avg_pop, frac_games, avg_gdppc) %>%
+  mutate(log_gdppc = log(avg_gdppc)) %>%
+  filter(!is.na(avg_gdppc))
+
+m_all_part <- MASS::glm.nb(total ~ frac_games + offset(log(avg_pop)), data = d_reg_all)
+m_all_gdp  <- MASS::glm.nb(total ~ log_gdppc + offset(log(avg_pop)), data = d_reg_all)
+m_all_pg   <- MASS::glm.nb(total ~ frac_games + log_gdppc + offset(log(avg_pop)), data = d_reg_all)
+
+models_all <- list(
+  "Participation" = m_all_part,
+  "log(GDPpc)" = m_all_gdp,
+  "Part + log(GDPpc)" = m_all_pg
+)
+
+map2_dfr(models_all, names(models_all), ~ {
+  s <- summary(.x)$coefficients
+  tibble(term = rownames(s), est = s[,1], se = s[,2], z = s[,3], p = s[,4], model = .y)
+}) %>% filter(term != "(Intercept)") %>%
+  mutate(sig = case_when(p < 0.001 ~ "***", p < 0.01 ~ "**", p < 0.05 ~ "*", p < 0.1 ~ ".", TRUE ~ "")) %>%
+  dplyr::select(model, term, est, se, z, p, sig)
+
+tibble(
+  model = names(models_all),
+  AIC = sapply(models_all, AIC),
+  theta = sapply(models_all, function(m) m$theta)
+)
+
+# standardized coefficients for relative importance
+d_reg_all_z <- d_reg_all %>%
+  mutate(across(c(frac_games, log_gdppc), ~ scale(.)[,1], .names = "{.col}_z"))
+
+m_all_pg_z <- MASS::glm.nb(total ~ frac_games_z + log_gdppc_z + offset(log(avg_pop)), data = d_reg_all_z)
+
+coef(summary(m_all_pg_z))[2:3, ]
+```
+
+## Model residuals
+
+```{r fig.width=12, fig.height=12}
+# post-1994: residuals from HDI model (best)
+d_reg_post <- d_reg_post %>%
+  mutate(
+    fitted_hdi = fitted(m_post_hdi),
+    resid_hdi = log(total) - log(fitted_hdi)
+  )
+
+d_reg_post %>% arrange(desc(resid_hdi)) %>%
+  dplyr::select(modern_iso3, country, total, fitted_hdi, resid_hdi) %>% head(10)
+d_reg_post %>% arrange(resid_hdi) %>%
+  dplyr::select(modern_iso3, country, total, fitted_hdi, resid_hdi) %>% head(10)
+
+# all-time: residuals from Part + log(GDPpc) model (best)
+d_reg_all <- d_reg_all %>%
+  mutate(
+    fitted_pg = fitted(m_all_pg),
+    resid_pg = log(total) - log(fitted_pg)
+  )
+
+d_reg_all %>% arrange(desc(resid_pg)) %>%
+  dplyr::select(iso3, country, total, fitted_pg, resid_pg) %>% head(10)
+d_reg_all %>% arrange(resid_pg) %>%
+  dplyr::select(iso3, country, total, fitted_pg, resid_pg) %>% head(10)
+
+r1 <- plot_resid_map(d_reg_post, "modern_iso3", "resid_hdi",
+                     title = "Post-1994 Summer residuals (HDI model)"); r1
+r2 <- plot_resid_map(d_reg_all, "iso3", "resid_pg",
+                     title = "All-time Summer residuals (Part + GDPpc model)"); r2
+
+r_combined <- r1 / r2 + plot_layout(guides = "collect") &
+  theme(legend.position = "bottom")
+r_combined
+
+GG_save("figures/resid_map_post1994_hdi.png", r1)
+GG_save("figures/resid_map_alltime_pg.png", r2)
+GG_save("figures/resid_map_combined.png", r_combined, width = 12, height = 12)
+```
+
+# Meta
+
+```{r}
+#versions
+write_sessioninfo()
+
+#write data to file for reuse
+# d %>% write_rds("data/data_for_reuse.rds")
+
+#OSF
+if (F) {
+  library(osfr)
+
+  #login
+  osf_auth(readr::read_lines("~/.config/osf_token"))
+
+  #the project we will use
+  osf_proj = osf_retrieve_node("https://osf.io/XXX/")
+
+  #upload all files in project
+  #overwrite existing (versioning)
+  osf_upload(
+    osf_proj,
+    path = c("data", "figures", "papers", "notebook.Rmd", "notebook.html", "sessions_info.txt"),
+    conflicts = "overwrite"
+    )
+}
+```
