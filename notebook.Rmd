@@ -18,7 +18,8 @@ load_packages(
   patchwork,
   rnaturalearth,
   sf,
-  readxl
+  readxl,
+  modelsummary
 )
 
 theme_set(theme_bw())
@@ -380,6 +381,50 @@ d_reg_all_z <- d_reg_all %>%
 m_all_pg_z <- MASS::glm.nb(total ~ frac_games_z + log_gdppc_z + offset(log(avg_pop)), data = d_reg_all_z)
 
 coef(summary(m_all_pg_z))[2:3, ]
+```
+
+## Model comparison (standardized betas)
+
+```{r}
+# refit all models with standardized predictors
+m_post_part_z <- MASS::glm.nb(total ~ frac_games_z + offset(log(avg_pop)), data = d_reg_post_z)
+m_post_hdi_z  <- MASS::glm.nb(total ~ avg_hdi_z + offset(log(avg_pop)), data = d_reg_post_z)
+m_post_gdp_z  <- MASS::glm.nb(total ~ log_gdppc_z + offset(log(avg_pop)), data = d_reg_post_z)
+
+m_all_part_z <- MASS::glm.nb(total ~ frac_games_z + offset(log(avg_pop)), data = d_reg_all_z)
+m_all_gdp_z  <- MASS::glm.nb(total ~ log_gdppc_z + offset(log(avg_pop)), data = d_reg_all_z)
+
+all_models <- list(
+  "Post-94: Part" = m_post_part_z,
+  "Post-94: HDI" = m_post_hdi_z,
+  "Post-94: GDPpc" = m_post_gdp_z,
+  "Post-94: Part+HDI" = m_post_ph_z,
+  "Post-94: Part+GDPpc" = m_post_pg_z,
+  "All: Part" = m_all_part_z,
+  "All: GDPpc" = m_all_gdp_z,
+  "All: Part+GDPpc" = m_all_pg_z
+)
+
+# McFadden pseudo R²
+m_post_null <- MASS::glm.nb(total ~ 1 + offset(log(avg_pop)), data = d_reg_post_z)
+m_all_null  <- MASS::glm.nb(total ~ 1 + offset(log(avg_pop)), data = d_reg_all_z)
+null_models <- c(rep(list(m_post_null), 5), rep(list(m_all_null), 3))
+
+pseudo_r2 <- function(model, null_model) 1 - as.numeric(logLik(model)) / as.numeric(logLik(null_model))
+r2_values <- map2_chr(all_models, null_models, ~ sprintf("%.3f", pseudo_r2(.x, .y)))
+aic_values <- map_chr(all_models, ~ sprintf("%.1f", AIC(.x)))
+
+extra_rows <- data.frame(matrix(c("AIC", aic_values, "McFadden R²", r2_values), nrow = 2, byrow = TRUE))
+names(extra_rows) <- c(" ", names(all_models))
+
+modelsummary(
+  all_models,
+  coef_map = c("frac_games_z" = "Participation", "avg_hdi_z" = "HDI", "log_gdppc_z" = "log(GDPpc)"),
+  statistic = "({std.error})",
+  stars = c("*" = 0.05, "**" = 0.01, "***" = 0.001),
+  gof_map = c("nobs"),
+  add_rows = extra_rows
+)
 ```
 
 ## Model residuals
